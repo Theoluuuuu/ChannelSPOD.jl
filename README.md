@@ -15,6 +15,7 @@ frequency, following the SPOD framework of
 - [Norm and time convention](#norm-and-time-convention)
 - [Welch estimate and normalisation](#welch-estimate-and-normalisation)
 - [Frequency-by-frequency projections](#frequency-by-frequency-projections)
+- [Pipe flow](#pipe-flow)
 - [Verification](#verification)
 
 ## Installation
@@ -24,11 +25,13 @@ Requires Julia 1.12 or newer. The packages are installed directly from GitHub:
 ```julia
 using Pkg
 Pkg.add(url="https://github.com/Davide-Lasagna-s-Lab/ChebUtils.jl")
+Pkg.add(url="https://github.com/Davide-Lasagna-s-Lab/FDGrids.jl")
 Pkg.add(url="https://github.com/Davide-Lasagna-s-Lab/ChannelSPOD.jl")
 ```
 
 Dependencies are [ChebUtils.jl](https://github.com/Davide-Lasagna-s-Lab/ChebUtils.jl)
-for wall-normal quadrature, [FFTW.jl](https://github.com/JuliaMath/FFTW.jl) for
+for wall-normal quadrature, [FDGrids.jl](https://github.com/Davide-Lasagna-s-Lab/FDGrids.jl)
+for radial quadrature in the pipe, [FFTW.jl](https://github.com/JuliaMath/FFTW.jl) for
 temporal transforms, and Julia's `LinearAlgebra` standard library for the SVD.
 DNS profiles may come from [ChannelFlow.jl](https://github.com/Davide-Lasagna-s-Lab/ChannelFlow.jl),
 but ChannelFlow is not a dependency.
@@ -144,11 +147,66 @@ It still stores all Welch-block transforms, requiring approximately
 outputs. It is not a streaming estimator. Process spatial pairs sequentially
 when analysing large archives.
 
+## Pipe flow
+
+`PipeSPODProblem(Nr)` and its `analyse` method (`src/pipe_spod.jl`) write out
+the same Welch estimator for the radial grid and the pipe inner product:
+
+```julia
+import ChannelSPOD, FDGrids
+
+problem = ChannelSPOD.PipeSPODProblem(64)
+r = FDGrids.grid(64, 1.0, FDGrids.HalfChebyshevGrid()).xs   # radii of the input profiles
+result = ChannelSPOD.analyse(problem, velocity_history, dt; nperseg=256)
+```
+
+`velocity_history` has shape `(Nr,3,Nt)`: the complex Fourier coefficients of
+one `(k_θ,k_z)` pair with components `(u_r,u_θ,u_z)` on the radial grid `r`,
+wall at `r[end]=1` and no point on the axis; `PipeSPODProblem` takes the
+weights `ws` of `∫ f r dr` on the same grid, so
+
+$$
+\|u\|_W^2=\int_0^1\left(|u_r|^2+|u_\theta|^2+|u_z|^2\right)r\,dr\approx u^*Wu,
+\qquad W=\mathrm{diag}(w_s,w_s,w_s),
+$$
+
+without the factor 2 of an area average. This is the norm of the pipe
+resolvent response modes, so a basis `Psi` from them can be projected through
+`frequency_callback` as above. The convention is `exp(im*(k_θ*θ + α*k_z*z - ω*t))`,
+so `omega` is the report's `ω_k`; Resolvent.jl's `PipeResolvent` takes
+`exp(+im*Ω*t)` with `Ω = -ω`. Interpolating openpipeflow states onto `r`, with
+the axis parity of each component, is outside this package. The grid is that
+of PipeResolventModes' `resolvent_grid(Nr)`, so the same `Nr` gives the same
+radii as the resolvent modes. Its weights integrate the kink of `|r|` at the axis
+and are only second-order accurate for `∫ r dr`: the norm is consistent, so
+orthonormality and the energy identities hold exactly in it, but absolute
+energies carry that quadrature error.
+
 ## Verification
 
 The tests check a bin-centred travelling harmonic's frequency sign, weighted
 mode norm, rectangular/Hann normalisation, input preservation, zero demeaned
-data, odd segment lengths and invalid dimensions/settings. These checks verify
+data, odd segment lengths and invalid dimensions/settings.
+
+The pipe tests, on a HalfChebyshev grid in the `∫ r dr` norm, check that
+
+- a `k_θ = 1` mode `exp(i(k_θθ + αk_z z - ωt))` peaks at `+ω` with its
+  `∫ |u|² r dr` as energy, under rectangular and Hann windows;
+- two structures orthonormal in `∫ r dr` but not in the Euclidean product,
+  uncorrelated across blocks, come back as the first two modes with their
+  energies, which the plain or `dr`-weighted norm cannot do;
+- the response `H f` of an operator to forcing white in the `∫ r dr` norm has
+  SPOD energies `σ²/B` and modes equal to the response modes of
+  `W^{1/2} H W^{-1/2}`, the Towne, Schmidt & Colonius (2018) correspondence the
+  pipe resolvent comparison rests on, and that projecting onto those response
+  modes through `frequency_callback` returns exactly the SPOD energies;
+- at `(k_θ, k_z) = (0, 0)` demeaning removes a Hagen–Poiseuille profile and
+  nothing else, and the spectrum integrates to the window-weighted
+  `∫ |u|² r dr` with and without the mean.
+
+Replacing the weights by ones or by the `dr` weights, flipping the transform
+sign, returning modes without `W^{-1/2}` or dropping the window energy each
+makes several of these tests fail. These checks verify
 the estimator conventions; they do not establish convergence for a turbulent
 record of a particular duration.
 
