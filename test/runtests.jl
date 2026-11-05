@@ -1,4 +1,4 @@
-using Test, LinearAlgebra, Random, ChannelSPOD, FDGrids
+using Test, LinearAlgebra, Random, ChannelSPOD
 
 @testset "Channel SPOD" begin
     Ny=9; L=32; Nt=4L; dt=0.1
@@ -71,13 +71,14 @@ end
     @test backing == saved
 end
 
-# Pipe tests: velocities (u_r, u_θ, u_z) on a HalfChebyshev radial grid, wall at
-# r = 1 and no point on the axis, in the norm ∫ uᴴu r dr of the pipe resolvent.
+# Pipe tests: velocities (u_r, u_θ, u_z) on the midpoint radial grid, standing for
+# a DNS grid and its weights of ∫ f r dr, in the norm ∫ uᴴu r dr of the pipe resolvent.
+midpoint(Nr) = (r = ((1:Nr) .- 0.5) ./ Nr; (r, r ./ Nr))
 
 @testset "Pipe: travelling mode convention in the r dr norm" begin
     Nr=16; L=32; Nt=4L; dt=0.1
-    r, ws = FDGrids.grid(Nr, 1.0, FDGrids.HalfChebyshevGrid())
-    p=PipeSPODProblem(Nr); W=Diagonal(repeat(ws,3))
+    r, ws = midpoint(Nr)
+    p=PipeSPODProblem(ws); W=Diagonal(repeat(ws,3))
     @test p.weights == ws
     # A k_θ = 1 profile, regular at the axis and no-slip at the wall, of unit ∫ |u|² r dr.
     phi=[1 .- r.^2; im .* (1 .- r.^2); r .* (1 .- r.^2)]
@@ -107,8 +108,8 @@ end
 
 @testset "Pipe: uncorrelated structures are separated in the r dr norm" begin
     Nr=16; L=32; B=4; Nt=B*L; dt=0.1
-    r, ws = FDGrids.grid(Nr, 1.0, FDGrids.HalfChebyshevGrid())
-    p=PipeSPODProblem(Nr); W=Diagonal(repeat(ws,3))
+    r, ws = midpoint(Nr)
+    p=PipeSPODProblem(ws); W=Diagonal(repeat(ws,3))
     # Two k_θ = 1 structures, orthonormal in ∫ uᴴv r dr but not in the plain
     # Euclidean product, so only the r dr weights can return both as SPOD modes.
     phi1=[1 .- r.^2; im .* (1 .- r.^2); r .* (1 .- r.^2)]
@@ -142,8 +143,8 @@ end
 
 @testset "Pipe: response to white forcing gives resolvent gains and response modes" begin
     Nr=8; L=8; dt=0.1
-    r, ws = FDGrids.grid(Nr, 1.0, FDGrids.HalfChebyshevGrid())
-    p=PipeSPODProblem(Nr); W=Diagonal(repeat(ws,3))
+    r, ws = midpoint(Nr)
+    p=PipeSPODProblem(ws); W=Diagonal(repeat(ws,3))
     # H stands for the pipe resolvent at one (k_θ, k_z, ω): a non-normal operator
     # whose gains and response modes are those of its SVD in the r dr norm, as in
     # Resolvent.jl's svd(H, ws, M): W^{1/2} H W^{-1/2} = U Σ V^H, ψ = W^{-1/2} U.
@@ -186,8 +187,8 @@ end
 
 @testset "Pipe: mean profile removal and energy budget at (k_θ, k_z) = (0, 0)" begin
     Nr=16; L=32; Nt=8L; dt=0.1
-    r, ws = FDGrids.grid(Nr, 1.0, FDGrids.HalfChebyshevGrid())
-    p=PipeSPODProblem(Nr); W=Diagonal(repeat(ws,3))
+    r, ws = midpoint(Nr)
+    p=PipeSPODProblem(ws); W=Diagonal(repeat(ws,3))
     # Hagen–Poiseuille profile U = 2(1 - r²) e_z in bulk units, plus a real axial
     # and swirl fluctuation with an integer number of periods over the record.
     U=[zeros(Nr); zeros(Nr); 2 .* (1 .- r.^2)]
@@ -221,36 +222,11 @@ end
     @test budget_total > 10*budget_fluctuation
 end
 
-@testset "Pipe: weights of another radial grid" begin
-    # Data on a grid other than HalfChebyshev, such as that of the DNS, given its
-    # weights of ∫ f r dr: here the midpoint rule, whose norm the energies follow.
-    Nr=12; L=32; Nt=4L; dt=0.1
-    r=((1:Nr) .- 0.5) ./ Nr; ws=r ./ Nr
-    p=PipeSPODProblem(ws); W=Diagonal(repeat(ws,3))
-    @test p.weights == ws
-    @test PipeSPODProblem(FDGrids.grid(Nr, 1.0, FDGrids.HalfChebyshevGrid()).ws).weights ==
-          PipeSPODProblem(Nr).weights
-    phi=[1 .- r.^2; im .* (1 .- r.^2); r .* (1 .- r.^2)]
-    phi ./= sqrt(real(dot(phi, W*phi)))
-    ω=2π*3/(L*dt)
-    data=zeros(ComplexF64,Nr,3,Nt)
-    for t in 1:Nt
-        data[:,:,t]=reshape(phi.*exp(-im*ω*(t-1)*dt), Nr, 3)
-    end
-    res=analyse(p,data,dt;nperseg=L,noverlap=0,window=ones(L),demean=false)
-    peak=argmax(res.energies[1,:]); @test res.omega[peak] ≈ ω
-    psi=vec(res.modes[:,:,1,peak])
-    @test real(dot(psi, W*psi)) ≈ 1
-    @test abs(dot(phi, W*psi)) ≈ 1
-    @test sum(res.energies)*(2π/(L*dt)) ≈ 1
-end
-
 @testset "Pipe: invalid inputs" begin
-    @test_throws ArgumentError PipeSPODProblem(1)
     @test_throws ArgumentError PipeSPODProblem([0.5])
     @test_throws ArgumentError PipeSPODProblem([0.5, -0.1])
     @test_throws ArgumentError PipeSPODProblem([0.5, NaN])
-    p=PipeSPODProblem(8); data=zeros(8,3,64)
+    p=PipeSPODProblem(midpoint(8)[2]); data=zeros(8,3,64)
     @test_throws DimensionMismatch analyse(p,data[1:end-1,:,:],0.1;nperseg=16)
     @test_throws DimensionMismatch analyse(p,data[:,1:2,:],0.1;nperseg=16)
     @test_throws ArgumentError analyse(p,data,0.1;nperseg=16,noverlap=0,nmodes=5)

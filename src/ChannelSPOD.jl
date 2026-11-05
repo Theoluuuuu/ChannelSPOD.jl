@@ -1,6 +1,6 @@
 module ChannelSPOD
 
-using LinearAlgebra, FFTW, ChebUtils, FDGrids
+using LinearAlgebra, FFTW, ChebUtils
 
 export SPODProblem, PipeSPODProblem, analyse
 

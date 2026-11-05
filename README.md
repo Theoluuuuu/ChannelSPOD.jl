@@ -25,13 +25,11 @@ Requires Julia 1.12 or newer. The packages are installed directly from GitHub:
 ```julia
 using Pkg
 Pkg.add(url="https://github.com/Davide-Lasagna-s-Lab/ChebUtils.jl")
-Pkg.add(url="https://github.com/Davide-Lasagna-s-Lab/FDGrids.jl")
 Pkg.add(url="https://github.com/Davide-Lasagna-s-Lab/ChannelSPOD.jl")
 ```
 
 Dependencies are [ChebUtils.jl](https://github.com/Davide-Lasagna-s-Lab/ChebUtils.jl)
-for wall-normal quadrature, [FDGrids.jl](https://github.com/Davide-Lasagna-s-Lab/FDGrids.jl)
-for radial quadrature in the pipe, [FFTW.jl](https://github.com/JuliaMath/FFTW.jl) for
+for wall-normal quadrature, [FFTW.jl](https://github.com/JuliaMath/FFTW.jl) for
 temporal transforms, and Julia's `LinearAlgebra` standard library for the SVD.
 DNS profiles may come from [ChannelFlow.jl](https://github.com/Davide-Lasagna-s-Lab/ChannelFlow.jl),
 but ChannelFlow is not a dependency.
@@ -149,21 +147,20 @@ when analysing large archives.
 
 ## Pipe flow
 
-`PipeSPODProblem(Nr)` and its `analyse` method (`src/pipe_spod.jl`) write out
+`PipeSPODProblem(ws)` and its `analyse` method (`src/pipe_spod.jl`) write out
 the same Welch estimator for the radial grid and the pipe inner product:
 
 ```julia
-import ChannelSPOD, FDGrids
+import ChannelSPOD
 
-problem = ChannelSPOD.PipeSPODProblem(64)
-r = FDGrids.grid(64, 1.0, FDGrids.HalfChebyshevGrid()).xs   # radii of the input profiles
+problem = ChannelSPOD.PipeSPODProblem(ws)   # weights of ∫ f r dr on the radial grid of the data
 result = ChannelSPOD.analyse(problem, velocity_history, dt; nperseg=256)
 ```
 
 `velocity_history` has shape `(Nr,3,Nt)`: the complex Fourier coefficients of
-one `(k_θ,k_z)` pair with components `(u_r,u_θ,u_z)` on the radial grid `r`,
-wall at `r[end]=1` and no point on the axis; `PipeSPODProblem` takes the
-weights `ws` of `∫ f r dr` on the same grid, so
+one `(k_θ,k_z)` pair with components `(u_r,u_θ,u_z)` on the radial grid of the
+data, such as that of the DNS, and `ws` are the positive weights of `∫ f r dr`
+on that grid (openpipeflow's `intrdr` on the DNS grid), so
 
 $$
 \|u\|_W^2=\int_0^1\left(|u_r|^2+|u_\theta|^2+|u_z|^2\right)r\,dr\approx u^*Wu,
@@ -171,21 +168,11 @@ $$
 $$
 
 without the factor 2 of an area average. This is the norm of the pipe
-resolvent response modes, so a basis `Psi` from them can be projected through
-`frequency_callback` as above. The convention is `exp(im*(k_θ*θ + α*k_z*z - ω*t))`,
-so `omega` is the report's `ω_k`; Resolvent.jl's `PipeResolvent` takes
-`exp(+im*Ω*t)` with `Ω = -ω`. The HalfChebyshev grid is that of
-PipeResolventModes' `resolvent_grid(Nr)`, so the same `Nr` gives the same
-radii as the resolvent modes. Its weights integrate the kink of `|r|` at the axis
-and are only second-order accurate for `∫ r dr`: the norm is consistent, so
-orthonormality and the energy identities hold exactly in it, but absolute
-energies carry that quadrature error.
-
-Data on another radial grid, such as openpipeflow's, need not be interpolated:
-`PipeSPODProblem(ws)` takes the positive weights `ws` of `∫ f r dr` on that grid,
-in the order of the input profiles, and the norm, orthonormality and energy
-identities then hold in that quadrature. Interpolating onto the HalfChebyshev
-grid, with the axis parity of each component, is outside this package.
+resolvent response modes, so a basis `Psi` from them, given on the same grid,
+can be projected through `frequency_callback` as above. The convention is
+`exp(im*(k_θ*θ + α*k_z*z - ω*t))`, so `omega` is the report's `ω_k`;
+Resolvent.jl's `PipeResolvent` takes `exp(+im*Ω*t)` with `Ω = -ω`.
+Interpolation between radial grids is outside this package.
 
 ## Verification
 
@@ -193,11 +180,10 @@ The tests check a bin-centred travelling harmonic's frequency sign, weighted
 mode norm, rectangular/Hann normalisation, input preservation, zero demeaned
 data, odd segment lengths and invalid dimensions/settings.
 
-The pipe tests, on a HalfChebyshev grid in the `∫ r dr` norm, check that
+The pipe tests, on a midpoint radial grid with its `∫ f r dr` weights, check that
 
 - a `k_θ = 1` mode `exp(i(k_θθ + αk_z z - ωt))` peaks at `+ω` with its
-  `∫ |u|² r dr` as energy, under rectangular and Hann windows, and on a
-  midpoint grid given its `∫ f r dr` weights;
+  `∫ |u|² r dr` as energy, under rectangular and Hann windows;
 - two structures orthonormal in `∫ r dr` but not in the Euclidean product,
   uncorrelated across blocks, come back as the first two modes with their
   energies, which the plain or `dr`-weighted norm cannot do;

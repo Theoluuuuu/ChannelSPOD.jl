@@ -2,10 +2,8 @@
 # and `analyse`: the same Welch estimator, written out for the radial grid and
 # the inner product of the pipe.
 #
-# Velocities stack (u_r, u_θ, u_z) on the Nr HalfChebyshev points of
-# FDGrids.grid(Nr, 1.0, HalfChebyshevGrid()) (wall at r[end] = 1, no point on the
-# axis), the grid of PipeResolventModes' resolvent_grid(Nr), or on any other radial
-# grid, such as that of the DNS, given the weights of ∫ f r dr on it. The inner product is
+# Velocities stack (u_r, u_θ, u_z) on the radial grid of the data, such as that of
+# the DNS, with the weights of ∫ f r dr on it. The inner product is
 #
 #     ⟨u, v⟩ = ∫₀¹ (u_r* v_r + u_θ* v_θ + u_z* v_z) r dr ≈ uᴴ W v,
 #
@@ -18,15 +16,12 @@
 # `PipeResolvent` takes exp(+iΩt), so its Ω is -omega.
 
 """
-    PipeSPODProblem(Nr)
     PipeSPODProblem(weights)
 
 Define the velocity inner product `⟨u,v⟩ = ∫₀¹ uᴴv r dr`, summed over the three
-velocity components `(u_r, u_θ, u_z)`, for nodal input profiles. `PipeSPODProblem(Nr)`
-uses the `Nr` points of `FDGrids.grid(Nr, 1.0, HalfChebyshevGrid())`, ordered from
-the axis to the wall at `r = 1`. `PipeSPODProblem(weights)` takes the positive
-weights of `∫₀¹ f r dr` on any other radial grid, such as that of the DNS, in the
-order of the input profiles.
+velocity components `(u_r, u_θ, u_z)`, for nodal profiles on a radial grid such as
+that of the DNS. `weights` are the positive weights of `∫₀¹ f r dr` on that grid,
+in the order of the input profiles: openpipeflow's `intrdr` on the DNS grid.
 """
 struct PipeSPODProblem
     # Scalar-profile weights of ∫ f r dr; repeated for u_r, u_θ and u_z during analysis.
@@ -38,11 +33,6 @@ struct PipeSPODProblem
             throw(ArgumentError("weights must be finite and positive"))
         return new(Float64.(weights))
     end
-end
-
-function PipeSPODProblem(Nr::Integer)
-    Nr >= 2 || throw(ArgumentError("at least two radial points are required"))
-    return PipeSPODProblem(FDGrids.grid(Int(Nr), 1.0, FDGrids.HalfChebyshevGrid()).ws)
 end
 
 raw"""
