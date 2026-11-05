@@ -174,13 +174,18 @@ without the factor 2 of an area average. This is the norm of the pipe
 resolvent response modes, so a basis `Psi` from them can be projected through
 `frequency_callback` as above. The convention is `exp(im*(k_θ*θ + α*k_z*z - ω*t))`,
 so `omega` is the report's `ω_k`; Resolvent.jl's `PipeResolvent` takes
-`exp(+im*Ω*t)` with `Ω = -ω`. Interpolating openpipeflow states onto `r`, with
-the axis parity of each component, is outside this package. The grid is that
-of PipeResolventModes' `resolvent_grid(Nr)`, so the same `Nr` gives the same
+`exp(+im*Ω*t)` with `Ω = -ω`. The HalfChebyshev grid is that of
+PipeResolventModes' `resolvent_grid(Nr)`, so the same `Nr` gives the same
 radii as the resolvent modes. Its weights integrate the kink of `|r|` at the axis
 and are only second-order accurate for `∫ r dr`: the norm is consistent, so
 orthonormality and the energy identities hold exactly in it, but absolute
 energies carry that quadrature error.
+
+Data on another radial grid, such as openpipeflow's, need not be interpolated:
+`PipeSPODProblem(ws)` takes the positive weights `ws` of `∫ f r dr` on that grid,
+in the order of the input profiles, and the norm, orthonormality and energy
+identities then hold in that quadrature. Interpolating onto the HalfChebyshev
+grid, with the axis parity of each component, is outside this package.
 
 ## Verification
 
@@ -191,7 +196,8 @@ data, odd segment lengths and invalid dimensions/settings.
 The pipe tests, on a HalfChebyshev grid in the `∫ r dr` norm, check that
 
 - a `k_θ = 1` mode `exp(i(k_θθ + αk_z z - ωt))` peaks at `+ω` with its
-  `∫ |u|² r dr` as energy, under rectangular and Hann windows;
+  `∫ |u|² r dr` as energy, under rectangular and Hann windows, and on a
+  midpoint grid given its `∫ f r dr` weights;
 - two structures orthonormal in `∫ r dr` but not in the Euclidean product,
   uncorrelated across blocks, come back as the first two modes with their
   energies, which the plain or `dr`-weighted norm cannot do;

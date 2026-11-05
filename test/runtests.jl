@@ -221,8 +221,35 @@ end
     @test budget_total > 10*budget_fluctuation
 end
 
+@testset "Pipe: weights of another radial grid" begin
+    # Data on a grid other than HalfChebyshev, such as that of the DNS, given its
+    # weights of ∫ f r dr: here the midpoint rule, whose norm the energies follow.
+    Nr=12; L=32; Nt=4L; dt=0.1
+    r=((1:Nr) .- 0.5) ./ Nr; ws=r ./ Nr
+    p=PipeSPODProblem(ws); W=Diagonal(repeat(ws,3))
+    @test p.weights == ws
+    @test PipeSPODProblem(FDGrids.grid(Nr, 1.0, FDGrids.HalfChebyshevGrid()).ws).weights ==
+          PipeSPODProblem(Nr).weights
+    phi=[1 .- r.^2; im .* (1 .- r.^2); r .* (1 .- r.^2)]
+    phi ./= sqrt(real(dot(phi, W*phi)))
+    ω=2π*3/(L*dt)
+    data=zeros(ComplexF64,Nr,3,Nt)
+    for t in 1:Nt
+        data[:,:,t]=reshape(phi.*exp(-im*ω*(t-1)*dt), Nr, 3)
+    end
+    res=analyse(p,data,dt;nperseg=L,noverlap=0,window=ones(L),demean=false)
+    peak=argmax(res.energies[1,:]); @test res.omega[peak] ≈ ω
+    psi=vec(res.modes[:,:,1,peak])
+    @test real(dot(psi, W*psi)) ≈ 1
+    @test abs(dot(phi, W*psi)) ≈ 1
+    @test sum(res.energies)*(2π/(L*dt)) ≈ 1
+end
+
 @testset "Pipe: invalid inputs" begin
     @test_throws ArgumentError PipeSPODProblem(1)
+    @test_throws ArgumentError PipeSPODProblem([0.5])
+    @test_throws ArgumentError PipeSPODProblem([0.5, -0.1])
+    @test_throws ArgumentError PipeSPODProblem([0.5, NaN])
     p=PipeSPODProblem(8); data=zeros(8,3,64)
     @test_throws DimensionMismatch analyse(p,data[1:end-1,:,:],0.1;nperseg=16)
     @test_throws DimensionMismatch analyse(p,data[:,1:2,:],0.1;nperseg=16)
